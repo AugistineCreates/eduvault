@@ -48,20 +48,27 @@ export async function GET(request) {
     const db = await getDb();
     const skip = (page - 1) * limit;
 
+    const buyerAddressLower = String(buyerAddress).toLowerCase();
+    const purchaseFilter = {
+      $or: [{ buyerAddress }, { buyerAddress: buyerAddressLower }],
+    };
+
     const [purchases, purchaseTotal, onchain] = await Promise.all([
       db
         .collection("purchases")
-        .find({ buyerAddress: String(buyerAddress).toLowerCase() })
+        .find(purchaseFilter)
         .sort({ purchasedAt: -1, createdAt: -1, updatedAt: -1 })
         .skip(skip)
         .limit(limit)
         .toArray(),
-      db.collection("purchases").countDocuments({ buyerAddress: String(buyerAddress).toLowerCase() }),
+      db.collection("purchases").countDocuments(purchaseFilter),
       fetchHorizonTransactions(String(buyerAddress), { page, limit }),
     ]);
 
     const purchaseRecords = buildPurchaseHistoryRecords(purchases);
-    const combined = [...purchaseRecords, ...onchain.records].sort((a, b) => {
+    const purchaseHashes = new Set(purchaseRecords.map((entry) => entry.hash).filter(Boolean));
+    const uniqueOnchain = onchain.records.filter((entry) => !entry.hash || !purchaseHashes.has(entry.hash));
+    const combined = [...purchaseRecords, ...uniqueOnchain].sort((a, b) => {
       const left = new Date(a.createdAt || 0).getTime();
       const right = new Date(b.createdAt || 0).getTime();
       return right - left;
